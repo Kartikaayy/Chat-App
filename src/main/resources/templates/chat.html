@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Real time chat application</title>
+
+    <!-- Bootstrap -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <!-- SockJS + STOMP -->
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.1/stomp.min.js"></script>
+
+    <style>
+        body {
+            background: #f4f6f9;
+        }
+
+        .chat-card {
+            max-width: 600px;
+            margin: auto;
+            margin-top: 40px;
+            border-radius: 12px;
+        }
+
+        #chat {
+            height: 350px;
+            overflow-y: auto;
+            background: #ffffff;
+            padding: 15px;
+            border-radius: 10px;
+        }
+
+        .chat-message {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 12px;
+            align-items: flex-start;
+        }
+
+        .chat-message.self {
+            flex-direction: row-reverse;
+        }
+
+        .avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            color: #fff;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .message-bubble {
+            background: #e9f2ff;
+            padding: 8px 12px;
+            border-radius: 10px;
+            font-size: 14px;
+            max-width: 75%;
+        }
+
+        .chat-message.self .message-bubble {
+            background: #d1e7dd;
+            text-align: right;
+        }
+
+        .chat-sender {
+            font-weight: 600;
+            display: block;
+            margin-bottom: 2px;
+            color: #0d6efd;
+        }
+
+        .chat-message.self .chat-sender {
+            display: none;
+        }
+
+        .input-area input {
+            border-radius: 8px;
+        }
+
+        .send-btn {
+            border-radius: 8px;
+        }
+        .message-time {
+            font-size: 11px;
+            color: #6c757d;
+            margin-top: 4px;
+        }
+
+        .chat-message.self .message-time {
+            text-align: right;
+        }
+
+        body.dark {
+            background: #121212;
+            color: #e0e0e0;
+        }
+
+        body.dark .chat-card {
+            background: #1e1e1e;
+        }
+
+        body.dark #chat {
+            background: #181818;
+        }
+
+        body.dark .message-bubble {
+            background: #2a2a2a;
+            color: #e0e0e0;
+        }
+
+        body.dark .chat-message.self .message-bubble {
+            background: #1f3d2b;
+        }
+
+        body.dark .chat-sender {
+            color: #90caf9;
+        }
+
+        body.dark .system-message {
+            color: #aaaaaa;
+        }
+
+        body.dark input {
+            background: #1e1e1e;
+            color: #e0e0e0;
+            border-color: #333;
+        }
+
+        body.dark input::placeholder {
+            color: #888;
+        }
+
+        body.dark .btn-primary {
+            background: #0d6efd;
+        }
+
+        .chat-title {
+            color: #0d6efd; /* Light mode blue */
+            font-weight: 600;
+        }
+
+        /* Dark mode title */
+        body.dark .chat-title {
+            color: #90caf9; /* Soft cyan / readable */
+        }
+
+        /* Dark mode toggle button refinement */
+        body.dark #darkToggle {
+            border-color: #555;
+            color: #e0e0e0;
+        }
+
+        body.dark .chat-card {
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.8);
+        }
+
+
+
+    </style>
+</head>
+
+<body>
+
+<div class="card shadow chat-card">
+    <div class="card-body">
+
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h3 class="chat-title m-0">💬 Real Time Chat</h3>
+            <button id="darkToggle" class="btn btn-sm btn-outline-secondary">
+                🌙 Dark
+            </button>
+        </div>
+
+
+        <div id="chat" class="mb-3"></div>
+
+        <div class="input-area mb-2">
+            <input id="senderInput" type="text" class="form-control" placeholder="Your name">
+        </div>
+
+        <div class="input-area mb-3">
+            <input id="messageInput" type="text" class="form-control" placeholder="Type your message...">
+        </div>
+
+        <div class="d-grid">
+            <button id="sendMessage" class="btn btn-primary send-btn">Send</button>
+        </div>
+
+
+
+
+    </div>
+</div>
+
+</body>
+
+<script>
+    var stompClient = null;
+
+    function setConnected(connected) {
+        document.getElementById('sendMessage').disabled = !connected;
+    }
+
+    function connect() {
+        var socket = new SockJS('/chat');
+        stompClient = Stomp.over(socket);
+
+        stompClient.connect({}, function () {
+            setConnected(true);
+
+            stompClient.subscribe('/topic/messages', function (message) {
+                showMessage(JSON.parse(message.body));
+            });
+        });
+    }
+
+    function getAvatarColor(name) {
+        let hash = 0;
+        for (let i = 0; i < name.length; i++) {
+            hash = name.charCodeAt(i) + ((hash << 5) - hash);
+        }
+
+        const hue = Math.abs(hash) % 360;   // 0–359
+        return `hsl(${hue}, 70%, 50%)`;     // vibrant, readable color
+    }
+
+    function formatTime(date) {
+        return date.toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    }
+
+    const toggleBtn = document.getElementById("darkToggle");
+
+    function toggleDarkMode() {
+        document.body.classList.toggle("dark");
+        localStorage.setItem(
+            "darkMode",
+            document.body.classList.contains("dark")
+        );
+    }
+
+    // Load saved preference
+    if (localStorage.getItem("darkMode") === "true") {
+        document.body.classList.add("dark");
+    }
+
+    toggleBtn.onclick = toggleDarkMode;
+
+
+
+
+    function showMessage(message) {
+        var chat = document.getElementById('chat');
+        var currentUser = document.getElementById('senderInput').value;
+
+        var messageWrapper = document.createElement('div');
+        messageWrapper.className = "chat-message";
+
+        var isSelf = message.sender === currentUser;
+        if (isSelf) messageWrapper.classList.add("self");
+
+        // Avatar
+        var avatar = document.createElement('div');
+        avatar.className = "avatar";
+        avatar.style.backgroundColor = getAvatarColor(message.sender);
+        avatar.textContent = message.sender.charAt(0).toUpperCase();
+
+        // Bubble
+        var bubble = document.createElement('div');
+        bubble.className = "message-bubble";
+
+        var senderSpan = document.createElement('span');
+        senderSpan.className = "chat-sender";
+        senderSpan.textContent = message.sender;
+
+        var textDiv = document.createElement('div');
+        textDiv.textContent = message.message;
+
+        var timeDiv = document.createElement('div');
+        timeDiv.className = "message-time";
+        timeDiv.textContent = formatTime(new Date());
+
+        bubble.appendChild(senderSpan);
+        bubble.appendChild(textDiv);
+        bubble.appendChild(timeDiv);
+
+        messageWrapper.appendChild(avatar);
+        messageWrapper.appendChild(bubble);
+
+        chat.appendChild(messageWrapper);
+        chat.scrollTop = chat.scrollHeight;
+    }
+
+    function sendMessage() {
+        var sender = document.getElementById('senderInput').value;
+        var content = document.getElementById('messageInput').value;
+
+        if (sender === "" || content === "") return;
+
+        var chatMessage = {
+            sender: sender,
+            message: content
+        };
+
+        stompClient.send("/app/sendMessage", {}, JSON.stringify(chatMessage));
+        document.getElementById('messageInput').value = '';
+    }
+
+    document.getElementById('sendMessage').onclick = sendMessage;
+
+    document.getElementById('messageInput').addEventListener("keypress", function (e) {
+        if (e.key === "Enter") sendMessage();
+    });
+
+    window.onload = connect;
+</script>
+
+</html>
